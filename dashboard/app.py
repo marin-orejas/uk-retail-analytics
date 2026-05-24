@@ -124,6 +124,75 @@ def page_customers():
     st.dataframe(top, hide_index=True, use_container_width=True)
 
 
+def page_products():
+    st.title("Products")
+
+    top_rev = run_query("""
+        SELECT stock_code, description, units_sold, revenue
+        FROM v_product_performance
+        ORDER BY revenue DESC
+        LIMIT 20;
+    """)
+
+    total_products = run_query("SELECT COUNT(*) AS n FROM v_product_performance;")["n"].iloc[0]
+    c1, c2 = st.columns(2)
+    c1.metric("Products sold", f"{int(total_products):,}")
+    c2.metric("Top product revenue", f"£{top_rev['revenue'].iloc[0]:,.0f}")
+
+    st.subheader("Top 20 products by revenue")
+    fig = px.bar(
+        top_rev.sort_values("revenue"),
+        x="revenue", y="description", orientation="h",
+    )
+    fig.update_layout(yaxis_title="", xaxis_title="Revenue (£)", height=600)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Slow movers")
+    slow = run_query("""
+        SELECT stock_code, description, units_sold, revenue
+        FROM v_product_performance
+        WHERE units_sold > 0 AND units_sold < 10
+        ORDER BY units_sold ASC
+        LIMIT 25;
+    """)
+    st.dataframe(slow, hide_index=True, use_container_width=True)
+
+
+def page_geography():
+    st.title("Geography")
+
+    geo = run_query("""
+        SELECT country, orders, customers, revenue
+        FROM v_country_revenue
+        ORDER BY revenue DESC;
+    """)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Countries", f"{len(geo)}")
+    c2.metric("UK share",
+              f"{100 * geo.loc[geo['country'] == 'United Kingdom', 'revenue'].sum() / geo['revenue'].sum():.1f}%")
+    c3.metric("Non-UK revenue",
+              f"£{geo.loc[geo['country'] != 'United Kingdom', 'revenue'].sum():,.0f}")
+
+    st.subheader("Revenue by country (map)")
+    fig = px.choropleth(
+        geo, locations="country", locationmode="country names",
+        color="revenue", color_continuous_scale="Blues",
+        scope="europe",
+    )
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Top non-UK markets")
+    non_uk = geo[geo["country"] != "United Kingdom"].head(15)
+    fig = px.bar(non_uk.sort_values("revenue"),
+                 x="revenue", y="country", orientation="h")
+    fig.update_layout(yaxis_title="", xaxis_title="Revenue (£)")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(geo, hide_index=True, use_container_width=True)
+
+
 def page_placeholder(name: str):
     st.title(name)
     st.info("Coming soon.")
@@ -132,8 +201,8 @@ def page_placeholder(name: str):
 PAGES = {
     "Overview":  page_overview,
     "Customers": page_customers,
-    "Products":  lambda: page_placeholder("Products"),
-    "Geography": lambda: page_placeholder("Geography"),
+    "Products":  page_products,
+    "Geography": page_geography,
     "Trends":    lambda: page_placeholder("Trends"),
 }
 
