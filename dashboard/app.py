@@ -193,9 +193,60 @@ def page_geography():
     st.dataframe(geo, hide_index=True, use_container_width=True)
 
 
-def page_placeholder(name: str):
-    st.title(name)
-    st.info("Coming soon.")
+def page_trends():
+    st.title("Trends")
+
+    monthly = run_query("""
+        SELECT
+            month,
+            revenue,
+            LAG(revenue) OVER (ORDER BY month) AS prev_month
+        FROM v_monthly_revenue
+        ORDER BY month;
+    """)
+    monthly["mom_growth_pct"] = (
+        100 * (monthly["revenue"] - monthly["prev_month"]) / monthly["prev_month"]
+    )
+
+    st.subheader("Month-over-month growth")
+    fig = px.bar(monthly.dropna(), x="month", y="mom_growth_pct",
+                 color="mom_growth_pct", color_continuous_scale="RdYlGn")
+    fig.update_layout(yaxis_title="MoM %", xaxis_title="", coloraxis_showscale=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Day of week x hour")
+    heat = run_query("""
+        SELECT
+            EXTRACT(ISODOW FROM invoice_date)::int AS dow,
+            EXTRACT(HOUR   FROM invoice_date)::int AS hour,
+            COUNT(DISTINCT invoice_no) AS orders
+        FROM invoices
+        WHERE is_cancellation = FALSE
+        GROUP BY dow, hour
+        ORDER BY dow, hour;
+    """)
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    heat["day"] = heat["dow"].map(lambda d: days[d - 1])
+    pivot = heat.pivot(index="day", columns="hour", values="orders").reindex(days)
+    fig = px.imshow(pivot, color_continuous_scale="Blues", aspect="auto",
+                    labels=dict(color="Orders"))
+    fig.update_layout(xaxis_title="Hour", yaxis_title="")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Cancellation rate by month")
+    canc = run_query("""
+        SELECT
+            DATE_TRUNC('month', invoice_date)::date AS month,
+            COUNT(*) FILTER (WHERE is_cancellation)      AS cancellations,
+            COUNT(*) FILTER (WHERE NOT is_cancellation)  AS orders
+        FROM invoices
+        GROUP BY 1
+        ORDER BY 1;
+    """)
+    canc["rate_pct"] = 100 * canc["cancellations"] / (canc["orders"] + canc["cancellations"])
+    fig = px.line(canc, x="month", y="rate_pct", markers=True)
+    fig.update_layout(yaxis_title="Cancellation rate %", xaxis_title="")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 PAGES = {
@@ -203,7 +254,7 @@ PAGES = {
     "Customers": page_customers,
     "Products":  page_products,
     "Geography": page_geography,
-    "Trends":    lambda: page_placeholder("Trends"),
+    "Trends":    page_trends,
 }
 
 PAGES[page]()
